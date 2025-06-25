@@ -2,17 +2,14 @@
 .idea/
 *.iml
 
-# macOS
-.DS_Store
-
 # Logs
 *.log
 
-# Python (if you have any)
+# Python
 __pycache__/
 *.py[cod]
 
-# Node.js (if you have any)
+# Node.js
 node_modules/
 
 # Build artifacts

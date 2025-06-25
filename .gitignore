@@ -18,3 +18,5 @@ node_modules/
 # Build artifacts
 dist/
 build/
+# Custom folders
+Data/

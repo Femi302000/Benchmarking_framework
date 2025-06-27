@@ -1,9 +1,5 @@
 import json
 from pathlib import Path
-
-from scripts.pre_processing.extract_aircraft_models import bag_path
-
-
 def visualize_overlay(
     scene_pcd_path: str,
     model_pcd_path: str,
@@ -27,11 +23,11 @@ def visualize_overlay(
     ax.set_aspect('equal', 'box'); ax.set_xlabel('X [m]'); ax.set_ylabel('Y [m]'); ax.set_title(scene_stem)
     cb = plt.colorbar(sc, fraction=0.046, pad=0.04); cb.set_label('Height [m]')
     plt.show()
-bag_path="/home/femi/Benchmarking_framework/Data/bag_files/HAM_Airport_2024_08_08_movement_a320_ceo_Germany"
-bag_name = Path(bag_path).stem
-out_dir = Path(bag_path).parents[1] / "sequence_from_scene" / bag_name
-scene_files = sorted(out_dir.glob(f"{bag_name}_scene????_*_filtered.pcd"))
-scene_pcd_path="/home/femi/Benchmarking_framework/Data/sequence_from_scene/HAM_Airport_2024_08_08_movement_a320_ceo_Germany/HAM_Airport_2024_08_08_movement_a320_ceo_Germany_scene0000_8.996s_filtered.pcd"
-model_pcd_path="/home/femi/Benchmarking_framework/Data/Aircraft_models/HAM_Airport_2024_08_08_movement_a320_ceo_Germany_model.pcd"
-for scene in scene_files:
-    visualize_overlay(str(scene), str(model_pcd_path))
+# bag_path="/home/femi/Benchmarking_framework/Data/bag_files/HAM_Airport_2024_08_08_movement_a320_ceo_Germany"
+# bag_name = Path(bag_path).stem
+# out_dir = Path(bag_path).parents[1] / "sequence_from_scene" / bag_name
+# scene_files = sorted(out_dir.glob(f"{bag_name}_scene????_*_filtered.pcd"))
+# scene_pcd_path="/home/femi/Benchmarking_framework/Data/sequence_from_scene/HAM_Airport_2024_08_08_movement_a320_ceo_Germany/HAM_Airport_2024_08_08_movement_a320_ceo_Germany_scene0000_8.996s_filtered.pcd"
+# model_pcd_path="/home/femi/Benchmarking_framework/Data/Aircraft_models/HAM_Airport_2024_08_08_movement_a320_ceo_Germany_model.pcd"
+# for scene in scene_files:
+#     visualize_overlay(str(scene), str(model_pcd_path))

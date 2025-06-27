@@ -118,12 +118,12 @@ def extract_pcd_and_tf(
             idx += 1
             next_save += interval_sec
 
-BAG_PATH = "/home/femi/Benchmarking_framework/Data/bag_files/HAM_Airport_2024_08_08_movement_a320_ceo_Germany"
-TOPICS = ["/main/points"]
-INTERVAL = 0.5
-SOURCE_F = "base_link"
-TARGET_F = "main_sensor"
-rclpy.init()
-
-extract_pcd_and_tf(BAG_PATH, TOPICS, INTERVAL, SOURCE_F, TARGET_F)
+# bag_path = "/home/femi/Benchmarking_framework/Data/bag_files/HAM_Airport_2024_08_08_movement_a320_ceo_Germany"
+# TOPICS = ["/main/points"]
+# INTERVAL = 0.5
+# SOURCE_F = "base_link"
+# TARGET_F = "main_sensor"
+# rclpy.init()
+#
+# extract_pcd_and_tf(bag_path, TOPICS, INTERVAL, SOURCE_F, TARGET_F)
 

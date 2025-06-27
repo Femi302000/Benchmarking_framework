@@ -4,8 +4,6 @@ import numpy as np
 import open3d as o3d
 import json
 
-from scripts.saving_methods.txt import save_labels_txt
-
 # ---- Paths & Transform ----
 source_path = "/home/femi/Benchmarking_framework/Data/Aircraft_models/HAM_Airport_2024_08_08_movement_a320_ceo_Germany_model.pcd"
 target_folder = "/home/femi/Benchmarking_framework/Data/sequence_from_scene/HAM_Airport_2024_08_08_movement_a320_ceo_Germany"
@@ -72,22 +70,11 @@ for target_path in glob.glob(target_pattern):
     # Remove exact duplicate points and keep labels
     unique_pts, unique_idx = np.unique(pts, axis=0, return_index=True)
     unique_labels = labels[unique_idx]
-    out_path = os.path.join(label_dir, f"{scene_base}.npz")
-    np.savez_compressed(
-        out_path,
-        points=unique_pts,  # float64 array of shape (N,3)
-        labels=unique_labels  # uint8 array of shape (N,)
-    )
 
-    # out = os.path.join(label_dir, f"{scene_base}.txt")
-    # save_labels_txt(unique_pts, unique_labels,out)
+    import numpy as np
 
-    # Save labeled points to text file
-    # out = os.path.join(label_dir, f"{scene_base}.txt")
-    # with open(txt_out, "w") as f:
-    #     for (x, y, z), lab in zip(unique_pts, unique_labels):
-    #         f.write(f"{x:.6f} {y:.6f} {z:.6f} {lab}\n")
-    # print(f"Saved {len(unique_pts)} unique points with labels to '{txt_out}'")
+
+    print(f"Saved points+labels to '{out_path}'")
 
     # Save full scene point cloud
     scene_out = os.path.join(scene_dir, f"{scene_base}.pcd")

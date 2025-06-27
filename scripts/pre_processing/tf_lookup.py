@@ -1,9 +1,10 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.time import Time
-from tf2_ros import Buffer, TransformListener, TransformException
+from tf2_ros import Buffer, TransformListener
 import rosbag2_py
 from rosbag2_py import StorageOptions, ConverterOptions
+from tf2_ros import TransformException
 from tf2_msgs.msg import TFMessage
 from geometry_msgs.msg import TransformStamped
 from rclpy.serialization import deserialize_message
@@ -76,7 +77,7 @@ class BagTfProcessor(Node) :
                 # 0
                 ros_time,
                 # Time(),
-                timeout=rclpy.duration.Duration(seconds=1.0)  # Timeout for the lookup
+                timeout=rclpy.duration.Duration(seconds=4.0)  # Timeout for the lookup
             )
             self.get_logger().info(f"Transform at {transform.header.stamp}:")
             self.get_logger().info(
@@ -89,27 +90,27 @@ class BagTfProcessor(Node) :
             return None
 
 
-def main(args=None) :
-    rclpy.init(args=args)
-    bag_tf_processor = BagTfProcessor()
-
-    bag_file_path = '/home/femi/Evitado/Benchmarking_framework/Data/Bag_Files/HAM_Airport_2024_08_08_movement_a320_ceo_Germany'  # Replace with your ROS 2 bag directory
-
-    bag_tf_processor.read_tf_from_bag(bag_file_path)
-
-    # Example: Lookup transform at a specific time (in nanoseconds)
-    # You'll need to know a timestamp from your bag file.
-    # E.g., if a message timestamp was 1678886400.123456789 seconds,
-    # the nanoseconds would be 1678886400123456789
-    example_lookup_time_ns = 17231110276796528
-    bag_tf_processor.lookup_example('main_sensor','base_link',Time(seconds=1723111422, nanoseconds=334782665) )
-
-    # Optional: Spin the node for a short period if you have background
-    # processes or need time for cleanup (though not strictly necessary here)
-    # rclpy.spin_once(bag_tf_processor, timeout_sec=0.1)
-
-    bag_tf_processor.destroy_node()
-    rclpy.shutdown()
+# def main(args=None) :
+#     rclpy.init(args=args)
+#     bag_tf_processor = BagTfProcessor()
+#
+#     bag_file_path = '/home/femi/Benchmarking_framework/Data/bag_files/HAM_Airport_2024_08_08_movement_a320_ceo_Germany'  # Replace with your ROS 2 bag directory
+#
+#     bag_tf_processor.read_tf_from_bag(bag_file_path)
+#
+#     # Example: Lookup transform at a specific time (in nanoseconds)
+#     # You'll need to know a timestamp from your bag file.
+#     # E.g., if a message timestamp was 1678886400.123456789 seconds,
+#     # the nanoseconds would be 1678886400123456789
+#     example_lookup_time_ns = 17231110276796528
+#     bag_tf_processor.lookup_example('main_sensor','base_link',Time(seconds=1723111422, nanoseconds=334782665) )
+#
+#     # Optional: Spin the node for a short period if you have background
+#     # processes or need time for cleanup (though not strictly necessary here)
+#     # rclpy.spin_once(bag_tf_processor, timeout_sec=0.1)
+#
+#     bag_tf_processor.destroy_node()
+#     rclpy.shutdown()
 
 
 if __name__ == '__main__' :

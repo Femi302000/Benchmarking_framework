@@ -23,6 +23,6 @@ def visualize_before_after(
     plt.tight_layout()
     plt.show()
 
-raw_pcd_path="/home/femi/Benchmarking_framework/Data/sequence_from_scene/HAM_Airport_2024_08_08_movement_a320_ceo_Germany/HAM_Airport_2024_08_08_movement_a320_ceo_Germany_scene0000_8.996s_raw.pcd"
-filt_pcd_path="/home/femi/Benchmarking_framework/Data/sequence_from_scene/HAM_Airport_2024_08_08_movement_a320_ceo_Germany/HAM_Airport_2024_08_08_movement_a320_ceo_Germany_scene0000_8.996s_filtered.pcd"
-visualize_before_after(raw_pcd_path,filt_pcd_path)
+# raw_pcd_path="/home/femi/Benchmarking_framework/Data/sequence_from_scene/HAM_Airport_2024_08_08_movement_a320_ceo_Germany/HAM_Airport_2024_08_08_movement_a320_ceo_Germany_scene0000_8.996s_raw.pcd"
+# filt_pcd_path="/home/femi/Benchmarking_framework/Data/sequence_from_scene/HAM_Airport_2024_08_08_movement_a320_ceo_Germany/HAM_Airport_2024_08_08_movement_a320_ceo_Germany_scene0000_8.996s_filtered.pcd"
+# visualize_before_after(raw_pcd_path,filt_pcd_path)

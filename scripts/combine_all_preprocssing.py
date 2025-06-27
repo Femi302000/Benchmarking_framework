@@ -8,8 +8,7 @@ from scripts.pre_processing.extract_tf_scene import extract_pcd_and_tf
 import rclpy
 from scripts.pre_processing.visualise_model_scene_after_tf import visualize_overlay
 
-# === PyCharm Run Configuration ===
-BAG_PATH = "/home/femi/Benchmarking_framework/Data/bag_files/HAM_Airport_2024_08_08_movement_a320_ceo_Germany"
+bag_path = "/home/femi/Benchmarking_framework/Data/bag_files/Airbus_Airbus_13_03_2024_a320neo_2024-03-13-11-37-53"
 TOPICS = ["/main/points"]
 INTERVAL = 0.5
 SOURCE_F = "base_link"
@@ -24,12 +23,12 @@ VIS_OVERLAP = False
 if __name__ == "__main__":
     rclpy.init()
 
-    bag_name = Path(BAG_PATH).stem
-    extract_pcd_and_tf(BAG_PATH, TOPICS, INTERVAL, SOURCE_F, TARGET_F)
+    bag_name = Path(bag_path).stem
+    extract_pcd_and_tf(bag_path, TOPICS, INTERVAL, SOURCE_F, TARGET_F)
     if EXTRACT_M:
-        extract_aircraft_models(BAG_PATH)
-    out_dir = Path(BAG_PATH).parents[1] / "sequence_from_scene" / bag_name
-    model_path = Path(BAG_PATH).parents[1] / "Aircraft_models" / f"{bag_name}_model.pcd"
+        extract_aircraft_models(bag_path)
+    out_dir = Path(bag_path).parents[1] / "sequence_from_scene" / bag_name
+    model_path = Path(bag_path).parents[1] / "Aircraft_models" / f"{bag_name}_model.pcd"
     scene_files = sorted(out_dir.glob(f"{bag_name}_scene????_*_filtered.pcd"))
     if VISUALIZE and scene_files:
         visualize_before_after(str(scene_files[0]).replace('_filtered', '_raw'), str(scene_files[0]))

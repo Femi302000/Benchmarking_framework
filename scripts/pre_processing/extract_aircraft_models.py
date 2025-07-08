@@ -1,18 +1,17 @@
 from pathlib import Path
 
 import numpy as np
-
-import rosbag2_py
-from rclpy.serialization import deserialize_message
-from sensor_msgs.msg import PointCloud2
-import sensor_msgs_py.point_cloud2 as pc2
 import open3d as o3d
 
+import rosbag2_py
+import sensor_msgs_py.point_cloud2 as pc2
+from rclpy.serialization import deserialize_message
+from sensor_msgs.msg import PointCloud2
 
 
 def extract_aircraft_models(
-    bag_path: str,
-    model_topic: str = "/cloud_pcd"
+        bag_path: str,
+        model_topic: str = "/cloud_pcd"
 ) -> None:
     reader = rosbag2_py.SequentialReader()
     reader.open(
@@ -27,16 +26,17 @@ def extract_aircraft_models(
         cloud_msg = deserialize_message(raw, PointCloud2)
         pts = np.array(
             [[x, y, z] for x, y, z in pc2.read_points(
-                cloud_msg, field_names=("x","y","z"), skip_nans=True
+                cloud_msg, field_names=("x", "y", "z"), skip_nans=True
             )], dtype=np.float64
         )
-        pcd = o3d.geometry.PointCloud(); pcd.points = o3d.utility.Vector3dVector(pts)
+        pcd = o3d.geometry.PointCloud();
+        pcd.points = o3d.utility.Vector3dVector(pts)
         bag_name = Path(bag_path).stem
         filename = f"{bag_name}_model.pcd"
         pcd_path = model_dir / filename
         o3d.io.write_point_cloud(str(pcd_path), pcd)
         print(f"Saved aircraft model: {pcd_path}")
         break
-# bag_path = "/home/femi/Benchmarking_framework/Data/bag_files/HAM_Airport_2024_08_08_movement_a320_ceo_Germany"
-# bag_name = Path(bag_path).stem
-# extract_aircraft_models(bag_path)
+bag_path = "/home/femi/Benchmarking_framework/Data/bag_files/HAM_Airport_2024_08_08_movement_a320_ceo_Germany"
+bag_name = Path(bag_path).stem
+extract_aircraft_models(bag_path)

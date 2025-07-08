@@ -1,29 +1,38 @@
-import json
+#!/usr/bin/env python3
 from pathlib import Path
 
 import numpy as np
+import open3d as o3d
+import h5py
+
+from ros2_numpy.point_cloud2 import point_cloud2_to_array
 
 import rclpy
 import rosbag2_py
+import sensor_msgs_py.point_cloud2 as pc2
 from geometry_msgs.msg import TransformStamped
+from rclpy.duration import Duration
 from rclpy.serialization import deserialize_message
 from rclpy.time import Time
 from rosbag2_py import StorageFilter
+from scripts.pre_processing.destaggering import destagger
+from scripts.pre_processing.filter_ground_plane import filter_by_min_z
+from scripts.pre_processing.pixel_shift import extract_pixel_shift_by_row_field
+from scripts.pre_processing.save_scene import save_scene_to_hdf5
 from scripts.pre_processing.tf_lookup import BagTfProcessor
+from scripts.pre_processing.z_value_from_tf import get_first_z_translation_from_bag
 from sensor_msgs.msg import PointCloud2
-import sensor_msgs_py.point_cloud2 as pc2
-import open3d as o3d
-from scripts.pre_processing.filter_ground_plane import filter_negative_z
+from tests.test_basic_operation import cloud2_to_array_pure
 
 
 def quaternion_to_rotation_matrix(qx: float, qy: float, qz: float, qw: float) -> np.ndarray:
-    xx, yy, zz, ww = qx*qx, qy*qy, qz*qz, qw*qw
-    xy, xz, xw = qx*qy, qx*qz, qx*qw
-    yz, yw, zw = qy*qz, qy*qw, qz*qw
+    xx, yy, zz, ww = qx * qx, qy * qy, qz * qz, qw * qw
+    xy, xz, xw = qx * qy, qx * qz, qx * qw
+    yz, yw, zw = qy * qz, qy * qw, qz * qw
     return np.array([
-        [ ww + xx - yy - zz, 2*(xy - zw),       2*(xz + yw) ],
-        [ 2*(xy + zw),       ww - xx + yy - zz, 2*(yz - xw) ],
-        [ 2*(xz - yw),       2*(yz + xw),       ww - xx - yy + zz ],
+        [ww + xx - yy - zz, 2 * (xy - zw), 2 * (xz + yw)],
+        [2 * (xy + zw), ww - xx + yy - zz, 2 * (yz - xw)],
+        [2 * (xz - yw), 2 * (yz + xw), ww - xx - yy + zz],
     ], dtype=float)
 
 
@@ -42,88 +51,154 @@ def stamp_to_nanosec(stamp) -> int:
 
 
 def extract_pcd_and_tf(
-    bag_path: str,
-    topics: list,
-    interval_sec: float,
-    source_frame: str = "base_link",
-    target_frame: str = "main_sensor"
-) -> None:
+        bag_path: str,
+        topic: str,
+        interval_sec: float,
+        z_min: float,
+        source_frame: str = "base_link",
+        target_frame: str = "main_sensor_lidar",
+        target_frame_gd=str,
+        source_frame_gd=str):
+    """
+    Extract pointcloud scenes and corresponding TF matrices from a ROS2 bag,
+    saving range, intensity, reflectivity, ambient, and filtered 3D points.
+    """
+    # 1) load TF buffer
     tf_processor = BagTfProcessor()
     tf_processor.read_tf_from_bag(bag_path)
 
+    # 2) prepare output directory
     bag_name = Path(bag_path).stem
-    out_dir = Path(bag_path).parents[1] / "sequence_from_scene" / bag_name
+    out_dir = Path(bag_path).parents[1] / "machine_learning_dataset"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    for topic in topics:
-        print(f"Processing topic: {topic}")
-        reader = rosbag2_py.SequentialReader()
-        reader.open(
-            rosbag2_py.StorageOptions(uri=bag_path, storage_id="sqlite3"),
-            rosbag2_py.ConverterOptions("", "")
-        )
-        reader.set_filter(StorageFilter(topics=[topic]))
+    # 3) open rosbag reader and filter by topic
+    reader = rosbag2_py.SequentialReader()
+    reader.open(
+        rosbag2_py.StorageOptions(uri=bag_path, storage_id="sqlite3"),
+        rosbag2_py.ConverterOptions("", "")
+    )
+    reader.set_filter(StorageFilter(topics=[topic]))
 
-        start_ns = None
-        next_save = 0.0
-        idx = 0
+    start_ns = None
+    next_save = 0.0
+    idx = 0
+    pixel_shifts = extract_pixel_shift_by_row_field(bag_path)
+    while reader.has_next():
+        _, raw_buf, time_ns = reader.read_next()
 
-        while reader.has_next():
-            tname, raw, time_ns = reader.read_next()
-            if start_ns is None:
-                start_ns = time_ns
-            elapsed = (time_ns - start_ns) * 1e-9
-            if elapsed + 1e-6 < next_save:
-                continue
+        if start_ns is None:
+            start_ns = time_ns
+        elapsed = (time_ns - start_ns) * 1e-9
+        if elapsed + 1e-6 < next_save:
+            continue
 
-            # Deserialize point cloud message
-            cloud_msg: PointCloud2 = deserialize_message(raw, PointCloud2)
-            # Lookup transform at this timestamp
-            stamp_ns = stamp_to_nanosec(cloud_msg.header.stamp)
-            ros_time = Time(nanoseconds=stamp_ns)
-            tf_stamped = tf_processor.lookup_example(
-                source_frame,target_frame,  ros_time
-            )
+        # deserialize PointCloud2
+        cloud_msg: PointCloud2 = deserialize_message(raw_buf, PointCloud2)
+        stamp_ns = stamp_to_nanosec(cloud_msg.header.stamp)
+        ros_time = Time(nanoseconds=stamp_ns)
+        # cloud_2d=cloud2_to_array(cloud_msg)
+        # PIX_SHIFT=extract_pixel_shift_by_row_field(bag_path)
+        # dst = destagger_all_fields(cloud_2d,PIX_SHIFT)
 
-            if not tf_stamped:
-                print(f"[SKIP] no TF for `{source_frame}`→`{target_frame}` at t={elapsed:.3f}s")
-                continue
-
-            # Only save scenes with an available TF
-            pts = np.array(
-                [[x, y, z] for x, y, z in pc2.read_points(
-                    cloud_msg, field_names=("x", "y", "z"), skip_nans=True
-                )],
-                dtype=np.float64
-            )
-            raw_pcd = o3d.geometry.PointCloud()
-            raw_pcd.points = o3d.utility.Vector3dVector(pts)
-            filtered_pcd = filter_negative_z(raw_pcd)
-
-            name = f"{bag_name}_scene{idx:04d}_{elapsed:.3f}s"
-            raw_path = out_dir / f"{name}_raw.pcd"
-            filt_path = out_dir / f"{name}_filtered.pcd"
-            o3d.io.write_point_cloud(str(raw_path), raw_pcd)
-            o3d.io.write_point_cloud(str(filt_path), filtered_pcd)
-
-            # Save transform matrix
-            M = transform_stamped_to_matrix(tf_stamped)
-            M = np.round(M, 3)
-            tf_path = out_dir / f"{name}_tf.json"
-            with open(tf_path, 'w') as f:
-                json.dump({"matrix": M.tolist()}, f, indent=2)
-
-            print(f"Saved scene#{idx}: {raw_path.name}, {filt_path.name}, {tf_path.name}")
-
-            idx += 1
+        # get TF (skip if unavailable)
+        if not tf_processor.tf_buffer.can_transform(
+                target_frame, source_frame, ros_time, timeout=Duration(seconds=0.0)
+        ):
             next_save += interval_sec
+            continue
 
-# bag_path = "/home/femi/Benchmarking_framework/Data/bag_files/HAM_Airport_2024_08_08_movement_a320_ceo_Germany"
-# TOPICS = ["/main/points"]
-# INTERVAL = 0.5
-# SOURCE_F = "base_link"
-# TARGET_F = "main_sensor"
-# rclpy.init()
-#
-# extract_pcd_and_tf(bag_path, TOPICS, INTERVAL, SOURCE_F, TARGET_F)
+        try:
+            tf_stamped = tf_processor.tf_buffer.lookup_transform(
+                target_frame, source_frame, ros_time
+            )
+        except Exception:
+            next_save += interval_sec
+            continue
 
+        # read points and separate fields
+        points_iter = pc2.read_points(
+            cloud_msg,
+            field_names=('x', 'y', 'z', 'range', 'intensity', 'reflectivity', 'ambient'),
+            skip_nans=True
+        )
+        RANGE_SCALE = 1e-3  # e.g. if 'range' is stored in millimeters
+        REFLECTIVITY_SCALE = 1.0  # if 0–255 unitless
+        AMBIENT_SCALE = 1.0
+
+        cloud_2d = cloud2_to_array_pure(cloud_msg)
+        range_raw = cloud_2d['range'].astype(np.float32) * RANGE_SCALE
+        intensity_raw = cloud_2d['intensity'].astype(np.float32)
+        reflect_raw = cloud_2d['reflectivity'].astype(np.float32)* REFLECTIVITY_SCALE
+        ambient_raw = cloud_2d['ambient'].astype(np.float32)* AMBIENT_SCALE
+        ring_raw = cloud_2d['ring'].astype(np.uint16)
+        if pixel_shifts is not None:
+            range_image = destagger(range_raw, pixel_shifts)
+            intensity_image = destagger(intensity_raw, pixel_shifts)
+            reflect_image = destagger(reflect_raw, pixel_shifts)
+            ambient_image = destagger(ambient_raw, pixel_shifts)
+            ring_image = destagger(ring_raw, pixel_shifts)
+
+        else:
+            range_image = np.array(range_raw, dtype=np.float32)
+            intensity_image = np.array(intensity_raw, dtype=np.float32)
+            reflect_image = np.array(reflect_raw, dtype=np.float32)
+            ambient_image = np.array(ambient_raw, dtype=np.float32)
+            ring_image = ring_raw
+
+        xs, ys, zs, ranges, intensities, reflects, ambients = zip(*points_iter)
+        pts = np.vstack((xs, ys, zs)).T.astype(np.float64)
+
+
+        # apply TF to points if needed (optional)
+        raw_pcd = o3d.geometry.PointCloud()
+        raw_pcd.points = o3d.utility.Vector3dVector(pts)
+
+        # filter ground
+        filtered_pcd, non_ground_mask = filter_by_min_z(raw_pcd, z_min)
+        ground_mask = 1 - non_ground_mask
+
+        # get transform matrix
+        M = transform_stamped_to_matrix(tf_stamped)
+        save_scene_to_hdf5(
+            bag_path=bag_path,
+            base_out_dir=out_dir,
+            stamp_ns=stamp_ns,
+            raw_pcd=raw_pcd,
+            tf_matrix=M,
+            range_image=range_image,
+            intensity_image=intensity_image,
+            reflectivity_image= reflect_image,
+            ambient_image=ambient_image,
+
+            ring_arr=ring_raw,
+            ground_mask=ground_mask,
+        )
+
+        idx += 1
+        next_save += interval_sec
+
+
+if __name__ == "__main__":
+    rclpy.init()
+
+    bag_path = "/home/femi/Benchmarking_framework/Data/bag_files/HAM_Airport_2024_08_08_movement_a320_ceo_Germany"
+    topic = "/main/points"
+    interval_sec = 0.5
+
+    source_frame = "base_link"
+    target_frame = "main_sensor_lidar"
+    source_frame_gd="towbar"
+    target_frame_gd="main_sensor_lidar"
+    z_min = get_first_z_translation_from_bag(bag_path, topic=topic, source_frame=source_frame_gd,
+                                             target_frame=target_frame_gd, interval_sec=interval_sec)
+    extract_pcd_and_tf(
+        bag_path=bag_path,
+        topic=topic,
+        interval_sec=interval_sec,
+        z_min=z_min,
+        source_frame=source_frame,
+        target_frame=target_frame,
+    )
+
+    rclpy.shutdown()

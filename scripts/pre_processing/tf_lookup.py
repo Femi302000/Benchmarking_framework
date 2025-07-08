@@ -1,27 +1,25 @@
 import rclpy
-from rclpy.node import Node
-from rclpy.time import Time
-from tf2_ros import Buffer, TransformListener
 import rosbag2_py
-from rosbag2_py import StorageOptions, ConverterOptions
-from tf2_ros import TransformException
-from tf2_msgs.msg import TFMessage
 from geometry_msgs.msg import TransformStamped
+from rclpy.node import Node
 from rclpy.serialization import deserialize_message
+from rosbag2_py import StorageOptions, ConverterOptions
 from rosidl_runtime_py.utilities import get_message
+from tf2_msgs.msg import TFMessage
+from tf2_ros import Buffer, TransformListener
+from tf2_ros import TransformException
 
 
-class BagTfProcessor(Node) :
-    def __init__(self) :
+class BagTfProcessor(Node):
+    def __init__(self):
         super().__init__('bag_tf_processor_ros2')
         self.tf_buffer = Buffer()
         # In ROS 2, the TransformListener automatically uses the node's clock
         # which is usually the ROS clock (rclpy.clock.Clock)
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
-    def read_tf_from_bag(self, bag_file_path) :
+    def read_tf_from_bag(self, bag_file_path):
         self.get_logger().info(f"Reading TF from bag: {bag_file_path}")
-
 
         # Rosbag2 reader setup
         storage_options = StorageOptions(uri=bag_file_path, storage_id='sqlite3')  # or 'mcap'
@@ -34,7 +32,7 @@ class BagTfProcessor(Node) :
 
         # Get topic information to deserialize messages correctly
         topic_types = reader.get_all_topics_and_types()
-        type_map = {topic_type.name : topic_type.type for topic_type in topic_types}
+        type_map = {topic_type.name: topic_type.type for topic_type in topic_types}
 
         # Filter for TF topics
         tf_topics = ['/tf', '/tf_static']
@@ -43,23 +41,23 @@ class BagTfProcessor(Node) :
         reader.set_filter(storage_filter)
 
         # Iterate through messages
-        while reader.has_next() :
+        while reader.has_next():
             topic, data, timestamp = reader.read_next()
             msg_type = get_message(type_map[topic])
             msg = deserialize_message(data, msg_type)
 
-            if topic == '/tf' :
-                if isinstance(msg, TFMessage) :
-                    for transform_stamped in msg.transforms :
+            if topic == '/tf':
+                if isinstance(msg, TFMessage):
+                    for transform_stamped in msg.transforms:
                         self.tf_buffer.set_transform(transform_stamped, "bag_reader")
-                elif isinstance(msg, TransformStamped) :
+                elif isinstance(msg, TransformStamped):
                     # Rarely, a single TransformStamped might be published on /tf
                     self.tf_buffer.set_transform(msg, "bag_reader")
-            if topic == '/tf_static' :
-                if isinstance(msg, TFMessage) :
-                    for transform_stamped in msg.transforms :
+            if topic == '/tf_static':
+                if isinstance(msg, TFMessage):
+                    for transform_stamped in msg.transforms:
                         self.tf_buffer.set_transform_static(transform_stamped, "bag_reader")
-                elif isinstance(msg, TransformStamped) :
+                elif isinstance(msg, TransformStamped):
                     # Rarely, a single TransformStamped might be published on /tf
                     self.tf_buffer.set_transform_static(msg, "bag_reader")
             # You could add other message types here if you need to process them
@@ -68,9 +66,9 @@ class BagTfProcessor(Node) :
         self.get_logger().info("Finished populating TF buffer from bag.")
         del reader  # Close the reader
 
-    def lookup_example(self, target_frame, source_frame, ros_time) :
+    def lookup_example(self, target_frame, source_frame, ros_time=None):
 
-        try :
+        try:
             transform = self.tf_buffer.lookup_transform(
                 target_frame,
                 source_frame,
@@ -85,7 +83,7 @@ class BagTfProcessor(Node) :
             self.get_logger().info(
                 f"  Rotation: x={transform.transform.rotation.x}, y={transform.transform.rotation.y}, z={transform.transform.rotation.z}, w={transform.transform.rotation.w}")
             return transform
-        except TransformException as e :
+        except TransformException as e:
             self.get_logger().warn(f"LookupException: {e}")
             return None
 
@@ -113,5 +111,5 @@ class BagTfProcessor(Node) :
 #     rclpy.shutdown()
 
 
-if __name__ == '__main__' :
+if __name__ == '__main__':
     main()

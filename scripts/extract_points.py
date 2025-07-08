@@ -1,15 +1,17 @@
-import os
 import glob
+import json
+import os
+
 import numpy as np
 import open3d as o3d
-import json
 
-from scripts.saving_methods.txt import save_labels_txt
+from scripts.pre_processing.knn_search import label_scene_points
+from scripts.pre_processing.labels_to_npz_txt import save_labels
 
 # ---- Paths & Transform ----
-source_path = "/home/femi/Benchmarking_framework/Data/Aircraft_models/HAM_Airport_2024_08_08_movement_a320_ceo_Germany_model.pcd"
+source_path = "/Data/Aircraft_models/Air_France_25_01_2022_Air_France_aircraft_front_A319_Ceo_25-01-2022-12-21-23_fix.pcd"
 target_folder = "/home/femi/Benchmarking_framework/Data/sequence_from_scene/HAM_Airport_2024_08_08_movement_a320_ceo_Germany"
-
+distance_threshold = 0.2
 label_dir = "/home/femi/Benchmarking_framework/Data/Machine_learning_dataset/label"
 scene_dir = "/home/femi/Benchmarking_framework/Data/Machine_learning_dataset/scene"
 
@@ -19,14 +21,13 @@ os.makedirs(scene_dir, exist_ok=True)
 
 # Pattern to match all filtered PCD files
 target_pattern = os.path.join(target_folder, "*_filtered.pcd")
-
 # Nearest-neighbor distance threshold (in meters)
-distance_threshold = 4.5  # adjust based on sensor noise and scale
+ # adjust based on sensor noise and scale
 
 for target_path in glob.glob(target_pattern):
     scene_base = os.path.splitext(os.path.basename(target_path))[0]
 
-    # Derive JSON filename
+
     clean_base = scene_base.removesuffix("_filtered")
     json_path = os.path.join(target_folder, f"{clean_base}_tf.json")
     if not os.path.exists(json_path):
@@ -55,41 +56,19 @@ for target_path in glob.glob(target_pattern):
     pcd_src = o3d.io.read_point_cloud(source_path)
     pcd_src.transform(T)
 
-    # Build KD-Tree on source cloud
-    pcd_src_tree = o3d.geometry.KDTreeFlann(pcd_src)
-
-    # Load target scene
+    # Load target scene points
     pcd_tgt = o3d.io.read_point_cloud(target_path)
     pts = np.asarray(pcd_tgt.points)
 
-    # Label points based on nearest-neighbor distance
-    labels = np.zeros(len(pts), dtype=np.uint8)
-    for i, pt in enumerate(pts):
-        k, idx_knn, dist2 = pcd_src_tree.search_knn_vector_3d(pt, 1)
-        if k > 0 and np.sqrt(dist2[0]) < distance_threshold:
-            labels[i] = 1
+    # Label points using the refactored function
+    labels = label_scene_points(pcd_src, pts, distance_threshold)
 
     # Remove exact duplicate points and keep labels
     unique_pts, unique_idx = np.unique(pts, axis=0, return_index=True)
     unique_labels = labels[unique_idx]
-    out_path = os.path.join(label_dir, f"{scene_base}.npz")
-    np.savez_compressed(
-        out_path,
-        points=unique_pts,  # float64 array of shape (N,3)
-        labels=unique_labels  # uint8 array of shape (N,)
-    )
 
-    # out = os.path.join(label_dir, f"{scene_base}.txt")
-    # save_labels_txt(unique_pts, unique_labels,out)
-
-    # Save labeled points to text file
-    # out = os.path.join(label_dir, f"{scene_base}.txt")
-    # with open(txt_out, "w") as f:
-    #     for (x, y, z), lab in zip(unique_pts, unique_labels):
-    #         f.write(f"{x:.6f} {y:.6f} {z:.6f} {lab}\n")
-    # print(f"Saved {len(unique_pts)} unique points with labels to '{txt_out}'")
-
-    # Save full scene point cloud
+    # Save labels and full scene
+    save_labels(pts, labels, base_name=scene_base, fmt="npz")
     scene_out = os.path.join(scene_dir, f"{scene_base}.pcd")
     o3d.io.write_point_cloud(scene_out, pcd_tgt)
     print(f"Saved full scene point cloud to '{scene_out}'")

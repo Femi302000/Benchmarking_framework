@@ -1,7 +1,9 @@
-import os
 import glob
+import os
+
 import numpy as np
 import open3d as o3d
+
 
 def get_base_dir():
     # Determine the base directory by looking one level up, then 'Data/Machine_learning_dataset'
@@ -83,5 +85,6 @@ def label_point_clouds(base_dir=None, target_label=1):
         result_pcd = o3d.io.read_point_cloud(out_path)
         visualize_point_cloud(result_pcd, window_name=f"Vis: {base_name}")
 
+
 if __name__ == "__main__":
-    label_point_clouds()
+    label_point_clouds(base_dir="/home/femi/Benchmarking_framework/Data/Machine_learning_dataset")

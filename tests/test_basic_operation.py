@@ -1,138 +1,91 @@
 #!/usr/bin/env python3
+"""
+pcd_to_range_image_side_by_side.py
+
+Loads a PCD, projects it onto a 128×1024 spherical range image,
+and displays it alongside the original point cloud in one Matplotlib window.
+"""
+
 import numpy as np
-import rosbag2_py
-from rosbag2_py import StorageFilter, StorageOptions, ConverterOptions
-from rclpy.serialization import deserialize_message
-from sensor_msgs.msg import PointCloud2, PointField
-from scripts.pre_processing.pixel_shift import extract_pixel_shift_by_row_field
+import open3d as o3d
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
-# Map ROS PointField datatypes to NumPy
-ROS2_TO_NUMPY = {
-    PointField.INT8:   ('i1', 1),
-    PointField.UINT8:  ('u1', 1),
-    PointField.INT16:  ('i2', 2),
-    PointField.UINT16: ('u2', 2),
-    PointField.INT32:  ('i4', 4),
-    PointField.UINT32: ('u4', 4),
-    PointField.FLOAT32:('f4', 4),
-    PointField.FLOAT64:('f8', 8),
-}
+# --- User parameters ---
+PCD_PATH = "/scripts/data_dir/HAM_Airport_2024_08_08_movement_a320_ceo_Germany_model.pcd"
+H, W = 128, 1024   # 128 rows (vertical), 1024 cols (horizontal)
 
-def build_dtype_from_fields(fields, point_step, is_bigendian):
+def pcd_to_range_image(pcd, H, W):
     """
-    Build a NumPy dtype for a PointCloud2 from its fields[] description.
+    Projects pcd (Open3D PointCloud) into a range image of shape (H,W).
+    Assumes ±90° vertical FOV and 360° horizontal FOV.
+    Rolls so forward-facing direction is centered.
     """
-    names = []
-    formats = []
-    offsets = []
-    for f in fields:
-        if f.datatype not in ROS2_TO_NUMPY:
-            raise ValueError(f"Unsupported PointField datatype {f.datatype}")
-        np_fmt, size = ROS2_TO_NUMPY[f.datatype]
-        # if count > 1, represent as a tuple-array
-        if f.count != 1:
-            np_fmt = (np_fmt, f.count)
-        names.append(f.name)
-        formats.append(np_fmt)
-        offsets.append(f.offset)
-    return np.dtype({
-        'names':    names,
-        'formats':  formats,
-        'offsets':  offsets,
-        'itemsize': point_step,
-        'aligned':  False,
-    })
+    pts = np.asarray(pcd.points)
+    x, y, z = pts[:,0], pts[:,1], pts[:,2]
+    r = np.linalg.norm(pts, axis=1)
 
-def cloud2_to_array_pure(cloud_msg: PointCloud2) -> np.ndarray:
-    """
-    Convert a ROS2 PointCloud2 into a structured NumPy array of shape (H, W)
-    using only the message’s fields, point_step, and raw data buffer.
-    """
-    H, W = cloud_msg.height, cloud_msg.width
-    dtype = build_dtype_from_fields(cloud_msg.fields,
-                                    cloud_msg.point_step,
-                                    cloud_msg.is_bigendian)
-    # Interpret the raw data buffer directly
-    arr1d = np.frombuffer(cloud_msg.data, dtype=dtype)
-    # Reshape into (H, W)
-    try:
-        return arr1d.reshape((H, W))
-    except ValueError as e:
-        raise RuntimeError(f"Expected {H*W} points but got {arr1d.size}") from e
+    # spherical coords
+    az = np.arctan2(y, x)              # [-π, +π]
+    el = np.arcsin(z / (r + 1e-6))     # [-π/2, +π/2]
 
-def destagger(field: np.ndarray, shifts: np.ndarray) -> np.ndarray:
-    """
-    Apply per-row cyclic shifts to destagger a 2D lidar field.
-    """
-    H, W = field.shape
-    out = np.zeros_like(field)
-    for u, s in enumerate(shifts):
-        out[u, :] = np.roll(field[u, :], s)
-    return out
+    # map to pixel coords
+    col = ((az + np.pi) / (2 * np.pi) * W).astype(int)
+    row = ((el + np.pi/2) / np.pi * H).astype(int)
 
-def iterate_clouds_from_bag(bag_path: str, topic: str):
-    """
-    Generator yielding raw PointCloud2 messages from a ROS2 bag.
-    """
-    reader = rosbag2_py.SequentialReader()
-    reader.open(
-        StorageOptions(uri=bag_path, storage_id="sqlite3"),
-        ConverterOptions(input_serialization_format="", output_serialization_format="")
+    col = np.clip(col, 0, W-1)
+    row = np.clip(row, 0, H-1)
+
+    # initialize and fill with nearest range
+    range_img = np.full((H, W), np.inf, dtype=np.float32)
+    for ri, rr, cc in zip(r, row, col):
+        if ri < range_img[rr, cc]:
+            range_img[rr, cc] = ri
+
+    range_img[range_img == np.inf] = np.nan
+    # center the forward direction
+    range_img = np.roll(range_img, W // 2, axis=1)
+    return range_img
+
+def main():
+    # 1) Load PCD
+    pcd = o3d.io.read_point_cloud(PCD_PATH)
+    pts = np.asarray(pcd.points)
+    print(f"Loaded {len(pts)} points")
+
+    # 2) Build range image
+    img = pcd_to_range_image(pcd, H, W)
+    print(f"Range image: {img.shape}")
+
+    # 3) Set up side-by-side figure
+    fig = plt.figure(figsize=(16, 6))
+
+    # 3a) Left: 3D point cloud
+    ax_pc = fig.add_subplot(1, 2, 1, projection='3d')
+    ax_pc.scatter(
+        pts[:,0], pts[:,1], pts[:,2],
+        c=pts[:,2], cmap='jet', s=0.5, linewidth=0
     )
-    reader.set_filter(StorageFilter(topics=[topic]))
-    while reader.has_next():
-        _, raw_buf, _ = reader.read_next()
-        yield deserialize_message(raw_buf, PointCloud2)
+    ax_pc.set_title("Original Point Cloud")
+    ax_pc.set_xlabel("X"); ax_pc.set_ylabel("Y"); ax_pc.set_zlabel("Z")
+    ax_pc.view_init(elev=20, azim=120)
+    ax_pc.set_box_aspect((1,1,0.5))
+
+    # 3b) Right: range image
+    ax_img = fig.add_subplot(1, 2, 2)
+    clean = np.nan_to_num(img, nan=0.0)
+    vmin, vmax = np.nanpercentile(clean, (1, 99))
+    im = ax_img.imshow(
+        clean, cmap="viridis", origin="lower",
+        vmin=vmin, vmax=vmax, aspect="auto"
+    )
+    ax_img.set_title(f"Range Image ({H}×{W})")
+    ax_img.set_xlabel("Azimuth bin")
+    ax_img.set_ylabel("Elevation bin")
+    fig.colorbar(im, ax=ax_img, fraction=0.046, pad=0.04)
+
+    plt.tight_layout()
+    plt.show()
 
 if __name__ == "__main__":
-    # ------- User config -------
-    bag_path = "/home/femi/Benchmarking_framework/Data/bag_files/Airbus_Airbus_03_08_2023_tug_towbarless_A321_Neo_08-03-2023-14-59-10"
-    topic    = "/main/points"
-    # Scale factors for integer fields (adjust per your sensor spec)
-    RANGE_SCALE        = 1e-3   # e.g. if 'range' is stored in millimeters
-    REFLECTIVITY_SCALE = 1.0    # if 0–255 unitless
-    AMBIENT_SCALE      = 1.0
-    # ---------------------------
-
-    # 1) Precompute pixel shifts once
-    pixel_shifts = extract_pixel_shift_by_row_field(bag_path)
-
-    # 2) Process each PointCloud2
-    for idx, cloud_msg in enumerate(iterate_clouds_from_bag(bag_path, topic)):
-        # parse all fields into a (H, W) structured array
-        cloud_arr = cloud2_to_array_pure(cloud_msg)
-        H, W = cloud_arr.shape
-
-        # 3) Extract channels and scale integers → floats
-        intensity    = cloud_arr['intensity'].astype(np.float32)
-        range_raw    = cloud_arr['range'].astype(np.float32)       * RANGE_SCALE
-        reflectivity = cloud_arr['reflectivity'].astype(np.float32)* REFLECTIVITY_SCALE
-        ambient      = cloud_arr['ambient'].astype(np.float32)     * AMBIENT_SCALE
-
-        # 4) Destagger each channel
-        ds_range     = destagger(range_raw,     pixel_shifts)
-        ds_intensity = destagger(intensity,     pixel_shifts)
-        ds_reflect   = destagger(reflectivity,  pixel_shifts)
-        ds_ambient   = destagger(ambient,       pixel_shifts)
-
-        print(f"[{idx:03d}] Destaggered → shape {H}×{W}")
-
-        # 5) Display each in its own zoomable Matplotlib window
-        for field, title, cmap in [
-            (ds_range,     'Range (m)',       'viridis'),
-            (ds_intensity, 'Intensity',       'inferno'),
-            (ds_reflect,   'Reflectivity',    'magma'),
-            (ds_ambient,   'Ambient',         'plasma'),
-        ]:
-            clean = np.nan_to_num(field, nan=0.0)
-            vmin, vmax = np.percentile(clean, (1, 99))
-            plt.figure(figsize=(6, 6))
-            plt.imshow(clean, origin='lower',
-                       vmin=vmin, vmax=vmax,
-                       cmap=cmap, interpolation='nearest')
-            plt.title(f'Frame {idx:03d} – {title}')
-            plt.axis('off')
-            plt.colorbar(fraction=0.046, pad=0.04)
-            plt.tight_layout()
-            plt.show()
+    main()

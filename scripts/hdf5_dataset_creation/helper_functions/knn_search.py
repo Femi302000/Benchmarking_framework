@@ -20,9 +20,12 @@ def label_scene_points(pcd_src: o3d.geometry.PointCloud,
     # Build KD-tree on source cloud
     pcd_tree = o3d.geometry.KDTreeFlann(pcd_src)
 
-    labels = np.zeros(len(points), dtype=np.uint8)
+    labels = np.zeros(points.shape[0], dtype=np.uint8)
     for i, pt in enumerate(points):
+        # search for the single nearest neighbor
         k, idx_knn, dist2 = pcd_tree.search_knn_vector_3d(pt, 1)
-        if k > 0 and np.sqrt(dist2[0]) < distance_threshold:
-            labels[i] = 1
+        if k > 0:
+            # dist2 is squared distance
+            if np.sqrt(dist2[0]) < distance_threshold:
+                labels[i] = 1
     return labels

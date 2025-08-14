@@ -22,53 +22,41 @@ BAG_PATH = (
 # Fully-qualified topic you want to read
 TOPIC_OF_INTEREST = '/main/ouster_info'
 
-def extract_pixel_shift_by_row_field(bag_path: str):
-    """
-    Reads the bag at `bag_path`, extracts `pixel_shift_by_row` for each message on TOPIC_OF_INTEREST,
-    prints each row index and value, and returns a dict mapping timestamps to numpy arrays.
-    """
-    # Prepare reader
+def extract_pixel_shift_by_row_field(bag_path: str, topic: str) -> np.ndarray | None:
+    from rosbag2_py import SequentialReader, StorageOptions, ConverterOptions
+    from rosidl_runtime_py.utilities import get_message
+    from rclpy.serialization import deserialize_message
+    import numpy as np
+
     storage_opts = StorageOptions(uri=bag_path, storage_id='sqlite3')
-    converter_opts = ConverterOptions(
-        input_serialization_format='cdr',
-        output_serialization_format='cdr'
-    )
+    converter_opts = ConverterOptions(input_serialization_format='cdr',
+                                      output_serialization_format='cdr')
     reader = SequentialReader()
     reader.open(storage_opts, converter_opts)
 
-    # Map each topic to its msg type
-    topic_type_map = {entry.name: entry.type for entry in reader.get_all_topics_and_types()}
-
-    if TOPIC_OF_INTEREST not in topic_type_map:
-        print(f"Error: topic '{TOPIC_OF_INTEREST}' not found. Available topics:")
-        for name in topic_type_map:
+    topics = {t.name: t.type for t in reader.get_all_topics_and_types()}
+    if topic not in topics:
+        print(f" topic '{topic}' not found. Available topics:")
+        for name in topics:
             print(f"  {name}")
         return None
 
-    # Instantiate message class
-    msg_type_str = 'ouster_sensor_msgs/msg/OusterSensorInfo'
-    MsgClass = get_message(msg_type_str)
+    # Ouster info type (adjust if different in your bag)
+    MsgClass = get_message(topics[topic])
 
-    shifts_by_timestamp = {}
-
-    # Read and process messages
+    # Read first message with the field and return its array
     while reader.has_next():
-        topic_name, data_bytes, timestamp = reader.read_next()
-        if topic_name != TOPIC_OF_INTEREST:
+        tname, data, _ = reader.read_next()
+        if tname != topic:
             continue
-
-        msg = deserialize_message(data_bytes, MsgClass)
+        msg = deserialize_message(data, MsgClass)
         pixel_shift = getattr(msg, 'pixel_shift_by_row', None)
-        if pixel_shift is None:
-            print(f"Message @ {timestamp} has no 'pixel_shift_by_row' field.")
-            continue
+        if pixel_shift is not None:
+            return np.array(pixel_shift, dtype=np.int32)
 
-        # Convert to numpy array
-        shift_array = np.array(pixel_shift)
-        shifts_by_timestamp[timestamp] = shift_array
+    print(f"No 'pixel_shift_by_row' in any message on {topic}")
+    return None
 
-
-    return shift_array
 
 
 if __name__ == '__main__':

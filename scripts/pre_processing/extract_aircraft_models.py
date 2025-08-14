@@ -37,6 +37,6 @@ def extract_aircraft_models(
         o3d.io.write_point_cloud(str(pcd_path), pcd)
         print(f"Saved aircraft model: {pcd_path}")
         break
-bag_path = "/home/femi/Benchmarking_framework/Data/bag_files/HAM_Airport_2024_08_08_movement_a320_ceo_Germany"
+bag_path = "/Data/bag_files/HAM_Airport_2024_08_08_movement_a320_ceo_Germany"
 bag_name = Path(bag_path).stem
 extract_aircraft_models(bag_path)

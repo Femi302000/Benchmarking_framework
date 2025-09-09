@@ -1,20 +1,5 @@
 #!/usr/bin/env python3
-"""
-overlay_aircraft_mask_updated.py (with BEV & side-view projections)
 
-• Saves preview images (range, mask, overlays, intensity) — all as 3-channel RGB
-• Saves 16-bit depth and colorized intensity as 3-channel RGB
-• Saves ambient, reflectivity, z as 3-channel RGB
-• Saves two synthetic RGB images:
-    <scene>_synthetic_rgb_range.png
-    <scene>_synthetic_rgb_reflectivity.png
-• Saves synthetic RGB combining ALL available channels via PCA:
-    <scene>_synthetic_rgb_all.png
-• Saves BEV RGB projection (top-down)
-• Saves side-view RGB projections (profile views along X and Y)
-
-Author: 2025-08-05 (updated to force 3-channel everywhere)
-"""
 import os
 import sys
 import numpy as np
@@ -23,8 +8,7 @@ import matplotlib.cm as cm
 import imageio.v2 as imageio
 
 H5_PATH = (
-    "/home/femi/Benchmarking_framework/Data/machine_learning_dataset/"
-    "HAM_Airport_2024_08_08_movement_a320_ceo_Germany.h5"
+    "/home/femi/Downloads/HAM_Airport.h5"
 )
 SAVE_DIR = "./3_channel"
 os.makedirs(SAVE_DIR, exist_ok=True)
@@ -43,16 +27,12 @@ def _save_image(img, path, *, cmap="gray", vmin=None, vmax=None):
     """
     Normalize `img`, map through `cmap`, drop alpha, write RGB uint8.
     """
-    # normalize
     clean = np.nan_to_num(img, nan=vmin if vmin is not None else 0.0)
     if vmin is None or vmax is None:
         vmin, vmax = np.percentile(clean, (1, 99))
     norm = np.clip((clean - vmin) / (vmax - vmin + 1e-12), 0, 1)
-
-    # colormap → RGBA float, drop A → RGB uint8
     rgba = cm.get_cmap(cmap)(norm)
     rgb = (rgba[..., :3] * 255).astype(np.uint8)
-
     imageio.imwrite(path, rgb)
 
 
@@ -61,19 +41,16 @@ def _save_overlay(base_img, mask, path,
     """
     Composite `mask` (binary) over `base_img`. Both mapped to RGB, then alpha-blended.
     """
-    # base image → RGB
     clean = np.nan_to_num(base_img, nan=0.0)
     vmin, vmax = np.percentile(clean, (1, 99))
     norm = np.clip((clean - vmin) / (vmax - vmin + 1e-12), 0, 1)
     base_rgb = (cm.get_cmap(cmap)(norm)[..., :3] * 255).astype(np.uint8)
 
-    # mask → single channel 0/1 → RGB mask bitmap
     mask_bin = (mask > 0).astype(np.uint8)
     mask_rgb = np.zeros_like(base_rgb)
     for c in range(3):
         mask_rgb[..., c] = (mask_bin * mask_color[c] * 255).astype(np.uint8)
 
-    # alpha blend
     comp = ((1 - alpha) * base_rgb + alpha * mask_rgb).astype(np.uint8)
     imageio.imwrite(path, comp)
 
@@ -87,7 +64,9 @@ def save_depth_and_rgb(range_img, intensity_img, scene, *,
     rgb_path   = os.path.join(depth_dir, f"{scene}_intensity_rgb.png")
 
     # DEPTH (16-bit PNG)
-    max_range = np.nanmax(range_img) or 1.0
+    max_range = float(np.nanmax(range_img)) if np.isfinite(np.nanmax(range_img)) else 1.0
+    if max_range <= 0:
+        max_range = 1.0
     depth16 = np.clip(range_img / max_range, 0, 1)
     depth16 = (depth16 * 65535).astype(np.uint16)
     imageio.imwrite(depth_path, depth16)
@@ -202,11 +181,40 @@ def save_synthetic_rgb_all(pts, cols,
 
 
 # ----------------------------------------------------------------------
+# NEW: Save separate channels (16-bit PNG + .npy)
+# ----------------------------------------------------------------------
+def _save_16bit(img, out_path):
+    clean = np.nan_to_num(img, nan=0.0)
+    vmin, vmax = np.percentile(clean, (1, 99))
+    if vmax <= vmin:
+        vmax = vmin + 1.0
+    norm = np.clip((clean - vmin) / (vmax - vmin), 0, 1)
+    u16 = (norm * 65535).astype(np.uint16)
+    imageio.imwrite(out_path, u16)
+
+def save_separate_channels(range_img, intensity_img, reflectivity_img, ambient_img, scene, outdir=SAVE_DIR):
+    items = {
+        "range": range_img,
+        "intensity": intensity_img,
+        "reflectivity": reflectivity_img,
+        "ambient": ambient_img,
+    }
+    for name, arr in items.items():
+        if arr is None:
+            continue
+        base = os.path.join(outdir, f"{scene}_{name}")
+        # 16-bit normalized PNG (preserves dynamic range)
+        _save_16bit(arr, base + "_16.png")
+        # raw values as .npy (no scaling)
+        np.save(base + ".npy", arr.astype(np.float32), allow_pickle=False)
+    print(f"[✓] {scene} → separate channels saved (16-bit PNG + .npy).")
+
+
+# ----------------------------------------------------------------------
 # BEV (top-down) and Side-view generation (always using 3-channel arrays)
 # ----------------------------------------------------------------------
 def generate_bev_rgb(pts, cols, synthetic_rgb, scene,
                      bev_size=(512, 512), output_dir=SAVE_DIR):
-    # drop alpha if somehow present
     if synthetic_rgb.ndim == 3 and synthetic_rgb.shape[2] == 4:
         synthetic_rgb = synthetic_rgb[..., :3]
 
@@ -234,7 +242,6 @@ def generate_bev_rgb(pts, cols, synthetic_rgb, scene,
 
 def generate_sideview_rgb(pts, cols, synthetic_rgb, scene,
                           axis='y', img_size=(512, 512), output_dir=SAVE_DIR):
-    # drop alpha if present
     if synthetic_rgb.ndim == 3 and synthetic_rgb.shape[2] == 4:
         synthetic_rgb = synthetic_rgb[..., :3]
 
@@ -301,6 +308,15 @@ def main():
             process_scene(range_img, intensity_img, mask, scene)
             save_depth_and_rgb(range_img, intensity_img, scene)
             channels = save_optional_images(pts, cols, scene, h, w)
+
+            # NEW: save the individual channels separately (16-bit PNG + .npy)
+            save_separate_channels(
+                range_img,
+                intensity_img,
+                channels.get("reflectivity"),
+                channels.get("ambient"),
+                scene
+            )
 
             save_multiple_synthetic_rgbs(
                 intensity_img,
